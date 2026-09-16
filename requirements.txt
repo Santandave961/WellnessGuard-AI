@@ -9,5 +9,5 @@ pydantic
 streamlit
 plotly
 joblib
-google-generativeai
+google-genai
 python-dotenv
