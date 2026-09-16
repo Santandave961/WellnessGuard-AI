@@ -14,7 +14,7 @@ import os
 
 try:
     from dotenv import load_dotenv
-    load_dotenv()  # reads .env in the project root, if present
+    load_dotenv(override=True)  # override=True so edits to .env take effect without a full restart
 except ImportError:
     pass
 
@@ -31,6 +31,11 @@ st.markdown(
     "and logs companion check-ins. Demo mode uses synthetic data — swap in "
     "WESAD/SWELL-KW for real evaluation."
 )
+
+# Persisted so it survives st.rerun() — a one-shot st.sidebar.error() call
+# gets wiped the instant rerun() fires, before it's ever visible.
+if "gemini_error" not in st.session_state:
+    st.session_state.gemini_error = None
 
 # --- Gemini setup ---
 # Checks local .env first (dev), then Streamlit Cloud's secrets manager (prod).
@@ -49,6 +54,9 @@ with st.sidebar:
     else:
         gemini_key = st.text_input("Gemini API key", type="password")
         st.caption("Get a key at aistudio.google.com/apikey, or add it to .env / Streamlit secrets to skip this.")
+
+    if st.session_state.gemini_error:
+        st.error(st.session_state.gemini_error)
 
 
 @st.cache_resource(show_spinner=False)
@@ -74,9 +82,18 @@ def generate_companion_message(stress_prob: float, top_drivers: list = None) -> 
 
     try:
         response = client.models.generate_content(model="gemini-2.5-flash", contents=prompt)
-        return (response.text or "").strip() or "Noticed a stress spike — want a 2-min breathing pause?"
+        text = (response.text or "").strip()
+        if text:
+            st.session_state.gemini_error = None
+            return text
+        # Empty response with no exception — Gemini's safety filters can do
+        # this silently. Surface it so it's distinguishable from a real crash.
+        st.session_state.gemini_error = (
+            "Gemini returned an empty response (possibly filtered) — showing fallback message."
+        )
+        return "Noticed a stress spike — want a 2-min breathing pause?"
     except Exception as e:
-        st.sidebar.error(f"Gemini call failed, using fallback message: {e}")
+        st.session_state.gemini_error = f"Gemini call failed: {type(e).__name__}: {e}"
         return "Noticed a stress spike — want a 2-min breathing pause?"
 
 # --- Demo data (replace with real inference pipeline output) ---
@@ -149,8 +166,15 @@ if user_input:
             reply_text = (reply.text or "").strip()
             if reply_text:
                 st.session_state.chat_log.append({"time": datetime.now().strftime("%H:%M"), "msg": reply_text})
+                st.session_state.gemini_error = None
+            else:
+                st.session_state.gemini_error = (
+                    "Gemini returned an empty reply (possibly filtered) — no message added."
+                )
         except Exception as e:
-            st.sidebar.error(f"Gemini reply failed: {e}")
+            st.session_state.gemini_error = f"Gemini reply failed: {type(e).__name__}: {e}"
+    else:
+        st.session_state.gemini_error = "No Gemini client — check that the API key loaded correctly."
 
     st.rerun()
 
