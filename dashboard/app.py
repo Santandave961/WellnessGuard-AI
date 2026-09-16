@@ -174,7 +174,13 @@ if user_input:
         except Exception as e:
             st.session_state.gemini_error = f"Gemini reply failed: {type(e).__name__}: {e}"
     else:
-        st.session_state.gemini_error = "No Gemini client — check that the API key loaded correctly."
+        if genai is None:
+            st.session_state.gemini_error = (
+                "google-genai package not installed/importable — check requirements.txt "
+                "has 'google-genai' (not the old 'google-generativeai')."
+            )
+        else:
+            st.session_state.gemini_error = "No Gemini client — the API key appears empty."
 
     st.rerun()
 
